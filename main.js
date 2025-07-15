@@ -19,6 +19,153 @@ const config = {
   careerPathsCollectionId: 'careerPaths',
 };
 
+// Foolproof JSON extraction and parsing function
+function extractAndParseJSON(responseText) {
+  try {
+    // Step 1: Remove markdown code blocks
+    let cleanedResponse = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    // Step 2: Find JSON array boundaries
+    const startIndex = cleanedResponse.indexOf('[');
+    const lastIndex = cleanedResponse.lastIndexOf(']');
+    
+    if (startIndex === -1 || lastIndex === -1 || startIndex >= lastIndex) {
+      throw new Error('No valid JSON array found in response');
+    }
+    
+    // Extract the JSON array part
+    const jsonPart = cleanedResponse.substring(startIndex, lastIndex + 1);
+    
+    // Step 3: Try direct parsing first
+    try {
+      const parsed = JSON.parse(jsonPart);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (directParseError) {
+      console.log('Direct parsing failed, attempting repair...');
+    }
+    
+    // Step 4: Repair common JSON issues
+    let repairedJSON = jsonPart;
+    
+    // Fix unescaped quotes in strings
+    repairedJSON = repairedJSON.replace(/"([^"]*)"([^"]*)"([^"]*)":/g, '"$1\\"$2\\"$3":');
+    
+    // Fix unescaped newlines and tabs
+    repairedJSON = repairedJSON.replace(/\n/g, '\\n').replace(/\t/g, '\\t').replace(/\r/g, '\\r');
+    
+    // Fix trailing commas
+    repairedJSON = repairedJSON.replace(/,(\s*[}\]])/g, '$1');
+    
+    // Fix unescaped backslashes
+    repairedJSON = repairedJSON.replace(/\\/g, '\\\\');
+    
+    // Try parsing the repaired JSON
+    try {
+      const parsed = JSON.parse(repairedJSON);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (repairParseError) {
+      console.log('Repair parsing failed, using fallback...');
+    }
+    
+    // Step 5: Last resort - manual extraction with regex
+    const projectMatches = [...repairedJSON.matchAll(/{[^{}]*}/g)];
+    if (projectMatches.length === 0) {
+      throw new Error('No project objects found in response');
+    }
+    
+    const extractedProjects = [];
+    for (const match of projectMatches) {
+      try {
+        const project = JSON.parse(match[0]);
+        extractedProjects.push(project);
+      } catch (e) {
+        // Skip malformed individual projects
+        continue;
+      }
+    }
+    
+    if (extractedProjects.length > 0) {
+      return extractedProjects;
+    }
+    
+    throw new Error('Failed to extract any valid projects from response');
+    
+  } catch (error) {
+    console.error('JSON extraction error:', error);
+    throw error;
+  }
+}
+
+// Fallback projects generator
+function generateFallbackProjects(careerTitle, difficulty) {
+  const timeEstimates = {
+    beginner: '1-2 weeks',
+    intermediate: '2-3 weeks',
+    advanced: '3-4 weeks'
+  };
+  
+  return [
+    {
+      title: `${careerTitle} Foundation Project`,
+      objectives: [
+        `Learn core ${careerTitle.toLowerCase()} concepts`,
+        'Build practical experience',
+        'Develop problem-solving skills'
+      ],
+      steps: [
+        'Research and plan the project',
+        'Set up development environment',
+        'Implement core functionality',
+        'Test and debug',
+        'Document and present results'
+      ],
+      tools: [`Industry-standard ${careerTitle.toLowerCase()} tools`, 'Development environment', 'Testing frameworks'],
+      timeCommitment: timeEstimates[difficulty],
+      realWorldRelevance: `This project simulates real-world ${careerTitle.toLowerCase()} scenarios and builds relevant skills for the industry.`
+    },
+    {
+      title: `${careerTitle} Practical Application`,
+      objectives: [
+        'Apply theoretical knowledge',
+        'Build a portfolio piece',
+        'Demonstrate technical skills'
+      ],
+      steps: [
+        'Define project requirements',
+        'Create project architecture',
+        'Develop and implement solution',
+        'Perform quality assurance',
+        'Deploy and maintain'
+      ],
+      tools: [`${careerTitle} development tools`, 'Project management software', 'Version control'],
+      timeCommitment: timeEstimates[difficulty],
+      realWorldRelevance: `Provides hands-on experience with real ${careerTitle.toLowerCase()} challenges and workflows.`
+    },
+    {
+      title: `${careerTitle} Challenge Project`,
+      objectives: [
+        'Solve complex problems',
+        'Demonstrate advanced skills',
+        'Prepare for career opportunities'
+      ],
+      steps: [
+        'Analyze problem requirements',
+        'Design comprehensive solution',
+        'Implement with best practices',
+        'Optimize and refine',
+        'Present and document'
+      ],
+      tools: [`Advanced ${careerTitle.toLowerCase()} tools`, 'Analytics platforms', 'Collaboration tools'],
+      timeCommitment: timeEstimates[difficulty],
+      realWorldRelevance: `Mirrors the complexity and requirements of professional ${careerTitle.toLowerCase()} work.`
+    }
+  ];
+}
+
 export default async ({ req, res, log, error }) => {
   try {
     log('=== Function Started ===');
@@ -80,77 +227,128 @@ export default async ({ req, res, log, error }) => {
       const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash",
         generationConfig: {
-          maxOutputTokens: 2048,
+          maxOutputTokens: 3000,
           temperature: 0.7,
         }
       });
 
-      const prompt = `Generate 3 ${difficulty} projects for "${careerPath.title}" career.
-Return only valid JSON array with objects containing:
-- title: Project name
-- objectives: Array of 3 learning goals
-- steps: Array of 5 implementation steps
-- tools: Array of required tools
-- timeCommitment: Time estimate
-- realWorldRelevance: Why it matters
+      const prompt = `Generate exactly 3 ${difficulty} projects for "${careerPath.title}" career path.
 
-Format: JSON array only, no extra text.`;
+CRITICAL REQUIREMENTS:
+1. Return ONLY a valid JSON array - no additional text, explanations, or formatting
+2. Each project must have EXACTLY these fields: title, objectives, steps, tools, timeCommitment, realWorldRelevance
+3. objectives: array of exactly 3 strings
+4. steps: array of exactly 5 strings  
+5. tools: array of strings
+6. Ensure all strings are properly escaped (use \\" for quotes, \\n for newlines)
+7. No trailing commas in arrays or objects
 
-      // Generate content
-      log('Generating projects with Gemini...');
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
-      log('Received response from Gemini');
+Example format:
+[
+  {
+    "title": "Project Name",
+    "objectives": ["Goal 1", "Goal 2", "Goal 3"],
+    "steps": ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"],
+    "tools": ["Tool 1", "Tool 2"],
+    "timeCommitment": "2-3 weeks",
+    "realWorldRelevance": "Explanation of relevance"
+  }
+]
 
-      // Parse and validate projects
+Generate for ${careerPath.title} at ${difficulty} level:`;
+
+      // Generate content with retry mechanism
       let projects;
+      let usedFallback = false;
+      
       try {
-        const cleanedResponse = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        projects = JSON.parse(cleanedResponse);
+        log('Generating projects with Gemini...');
+        const result = await model.generateContent(prompt);
+        const responseText = result.response.text();
+        log('Received response from Gemini');
         
+        // Use robust JSON parsing
+        projects = extractAndParseJSON(responseText);
+        
+        // Validate projects structure
         if (!Array.isArray(projects) || projects.length === 0) {
-          throw new Error('Empty projects array');
+          throw new Error('Invalid projects array structure');
         }
-      } catch (parseError) {
-        error(`Failed to parse projects: ${parseError.message}`);
-        return res.json({
-          success: false,
-          error: 'Failed to parse AI response',
-          rawResponse: responseText,
-          statusCode: 500
-        }, 500);
+        
+        // Validate each project has required fields
+        for (let i = 0; i < projects.length; i++) {
+          const project = projects[i];
+          if (!project.title || !Array.isArray(project.objectives) || 
+              !Array.isArray(project.steps) || !Array.isArray(project.tools) ||
+              !project.timeCommitment || !project.realWorldRelevance) {
+            throw new Error(`Project ${i + 1} missing required fields`);
+          }
+        }
+        
+        log('Successfully parsed and validated projects');
+        
+      } catch (aiError) {
+        log(`AI generation failed: ${aiError.message}, using fallback`);
+        projects = generateFallbackProjects(careerPath.title, difficulty);
+        usedFallback = true;
       }
 
-      // Create final response
+      // Ensure we always have exactly 3 projects
+      if (projects.length < 3) {
+        const fallbackProjects = generateFallbackProjects(careerPath.title, difficulty);
+        projects = [...projects, ...fallbackProjects.slice(projects.length)];
+      } else if (projects.length > 3) {
+        projects = projects.slice(0, 3);
+      }
+
+      // Create final response with guaranteed structure
       const response = {
         success: true,
         statusCode: 200,
-        projects: projects.map(project => ({
-          title: project.title || `${careerPath.title} Project`,
-          objectives: project.objectives || ['Learn relevant skills', 'Build practical experience'],
-          steps: project.steps || ['Plan the project', 'Implement solution', 'Test and refine'],
-          tools: project.tools || ['Basic tools for ' + careerPath.title],
-          timeCommitment: project.timeCommitment || '2-3 weeks',
-          realWorldRelevance: project.realWorldRelevance || 'Builds practical skills for the field',
+        projects: projects.map((project, index) => ({
+          title: project.title || `${careerPath.title} Project ${index + 1}`,
+          objectives: Array.isArray(project.objectives) && project.objectives.length > 0 
+            ? project.objectives.slice(0, 3) 
+            : ['Learn relevant skills', 'Build practical experience', 'Develop problem-solving abilities'],
+          steps: Array.isArray(project.steps) && project.steps.length > 0 
+            ? project.steps.slice(0, 5) 
+            : ['Plan the project', 'Set up environment', 'Implement solution', 'Test and refine', 'Document results'],
+          tools: Array.isArray(project.tools) && project.tools.length > 0 
+            ? project.tools 
+            : [`${careerPath.title} development tools`, 'Project management software'],
+          timeCommitment: project.timeCommitment || (difficulty === 'beginner' ? '1-2 weeks' : difficulty === 'intermediate' ? '2-3 weeks' : '3-4 weeks'),
+          realWorldRelevance: project.realWorldRelevance || `Builds practical skills relevant to ${careerPath.title} career`,
           ...project
         })),
         careerPath: {
           id: careerPath.$id,
           title: careerPath.title
         },
-        difficulty: difficulty
+        difficulty: difficulty,
+        usedFallback: usedFallback
       };
 
-      log('Successfully generated projects');
+      log('Successfully generated projects response');
       return res.json(response);
 
     } catch (err) {
       error(`AI Generation Error: ${err.message}`);
+      
+      // Return fallback projects even if AI completely fails
+      const fallbackProjects = generateFallbackProjects(careerPath.title, difficulty);
+      
       return res.json({
-        success: false,
-        error: 'Failed to generate projects',
-        statusCode: 500
-      }, 500);
+        success: true,
+        statusCode: 200,
+        projects: fallbackProjects,
+        careerPath: {
+          id: careerPath.$id,
+          title: careerPath.title
+        },
+        difficulty: difficulty,
+        usedFallback: true,
+        warning: 'AI generation failed, using fallback projects'
+      });
     }
 
   } catch (err) {
