@@ -272,9 +272,9 @@ Generate for ${careerPath.title} at ${difficulty} level:`;
             temperature: 0.7,
             // Enable thinking with a moderate budget for balanced speed and quality
             thinkingConfig: {
-              thinkingBudget: 512  // Moderate thinking budget for faster response while maintaining quality
+              thinkingBudget: 512,  // Moderate thinking budget for faster response while maintaining quality
               // For even faster responses, you can reduce to 256 or use 0 to disable thinking entirely:
-              // thinkingBudget: 0  // Disable thinking for maximum speed
+               thinkingBudget: 0  // Disable thinking for maximum speed
               // For dynamic thinking (slower but potentially higher quality):
               // thinkingBudget: -1  // Enable dynamic thinking
             }
