@@ -257,13 +257,30 @@ Example format:
 
 Generate for ${careerPath.title} at ${difficulty} level:`;
 
-      // Generate content with retry mechanism
+      // Generate content with retry mechanism and thinking config
       let projects;
       let usedFallback = false;
       
       try {
         log('Generating projects with Gemini...');
-        const result = await model.generateContent(prompt);
+        
+        // Use thinking configuration for faster, more focused responses
+        const result = await model.generateContent({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            maxOutputTokens: 3000,
+            temperature: 0.7,
+            // Enable thinking with a moderate budget for balanced speed and quality
+            thinkingConfig: {
+              thinkingBudget: 512  // Moderate thinking budget for faster response while maintaining quality
+              // For even faster responses, you can reduce to 256 or use 0 to disable thinking entirely:
+              // thinkingBudget: 0  // Disable thinking for maximum speed
+              // For dynamic thinking (slower but potentially higher quality):
+              // thinkingBudget: -1  // Enable dynamic thinking
+            }
+          }
+        });
+        
         const responseText = result.response.text();
         log('Received response from Gemini');
         
