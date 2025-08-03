@@ -225,11 +225,7 @@ export default async ({ req, res, log, error }) => {
     // Initialize Gemini
     try {
       const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.5-flash",
-        generationConfig: {
-          maxOutputTokens: 3000,
-          temperature: 0.7,
-        }
+        model: "gemini-2.0-flash",
       });
 
       const prompt = `Generate exactly 3 ${difficulty} projects for "${careerPath.title}" career path.
