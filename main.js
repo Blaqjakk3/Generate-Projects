@@ -1,3 +1,20 @@
+/**
+ * Generate-Projects Serverless Function
+ * 
+ * This function receives a careerPathId and difficulty level, fetches the corresponding career path from Appwrite,
+ * and uses Google Gemini AI to generate 3 project ideas tailored to that career and difficulty.
+ * It ensures the output is a valid JSON array with strict structure, repairing or falling back to default projects if needed.
+ * The function is robust to malformed AI output and always returns 3 projects, with clear error handling and logging.
+ * 
+ * Main Steps:
+ * 1. Parse and validate input (careerPathId, difficulty).
+ * 2. Fetch the career path document from Appwrite.
+ * 3. Prompt Gemini AI to generate 3 projects for the given career and difficulty.
+ * 4. Parse and validate the AI's JSON output, repairing if necessary.
+ * 5. If AI fails, generate fallback projects.
+ * 6. Return a structured JSON response with projects and metadata.
+ */
+
 import { Client, Databases } from 'node-appwrite';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
